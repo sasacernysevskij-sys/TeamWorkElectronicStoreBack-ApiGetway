@@ -1,26 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 
-from db import engine, Base
+app = FastAPI(title="API Gateway", version="1.0.0")
 
-from models.user import User
-from models.product import Product
-from models.cart_item import CartItem
-from models.order import Order
-from models.order_item import OrderItem
-from models.favorite import Favorite
-
-from routes.auth_routes import router as auth_router
-from routes.product_routes import router as product_router
-from routes.cart_routes import router as cart_router
-from routes.order_routes import router as order_router
-from routes.user_routes import router as user_router
-from routes.favorite_routes import router as favorite_router
-
-
-app = FastAPI(title="Shop API", version="1.0.0")
-
-# Разрешаем CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,18 +12,61 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Создаём таблицы при старте
-Base.metadata.create_all(bind=engine)
 
-# Подключаем роуты
-app.include_router(auth_router)
-app.include_router(product_router)
-app.include_router(cart_router)
-app.include_router(order_router)
-app.include_router(user_router)
-app.include_router(favorite_router)
+#--------------------------------------------------------------------------------------------------------------------
+AUTH_SERVICE = "http://localhost:8001"#------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------------------------------
 
+
+@app.api_route("/api/auth/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_auth(request: Request, path: str):
+    url = f"{AUTH_SERVICE}/api/auth/{path}"
+    return await proxy_request(request, url)
+
+@app.api_route("/api/users/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_users(request: Request, path: str):
+    url = f"{AUTH_SERVICE}/api/users/{path}"
+    return await proxy_request(request, url)
+
+@app.api_route("/api/users", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_users_root(request: Request):
+    url = f"{AUTH_SERVICE}/api/users"
+    return await proxy_request(request, url)
+
+
+#--------------------------------------------------------------------------------------------------------------------
+PRODUCT_SERVICE = "http://localhost:8002"#---------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------------------------------
+
+
+@app.api_route("/api/products/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_products(request: Request, path: str):
+    url = f"{PRODUCT_SERVICE}/api/products/{path}"
+    return await proxy_request(request, url)
+
+@app.api_route("/api/products", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_products_root(request: Request):
+    url = f"{PRODUCT_SERVICE}/api/products"
+    return await proxy_request(request, url)
+async def proxy_request(request: Request, url: str):
+    body = await request.body()
+    headers = dict(request.headers)
+    headers.pop("host", None)
+
+    async with httpx.AsyncClient() as client:
+        response = await client.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            content=body,
+            params=request.query_params,
+        )
+    return __import__("starlette").responses.Response(
+        content=response.content,
+        status_code=response.status_code,
+        headers=dict(response.headers),
+    )
 
 @app.get("/")
 def home():
-    return {"message": "API работает!"}
+    return {"message": "API Gateway работает!"}
